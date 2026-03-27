@@ -1,3 +1,4 @@
+// src\config\brand.config.ts
 export const BRAND = {
   name: "AE Naturals",
 
