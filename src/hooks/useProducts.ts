@@ -4,17 +4,21 @@ import { apiClient } from '@/lib/api-client';
 
 export function useProducts(categorySlug?: string) {
   return useQuery({
-    // 1. Remove categorySlug from the queryKey. The query fetches the WHOLE catalog.
-    queryKey: ['products', 'flower-fairy-dehradun', 'catalog'],
+    // 1. Generic query key. The data is implicitly scoped to the current 
+    // tenant domain, so we don't need the store slug here anymore.
+    queryKey: ['products', 'catalog'],
     
     queryFn: async () => {
-      const response: any = await apiClient.get('/products/catalog/flower-fairy-dehradun');
+      // 2. Pointing to the new dynamic endpoint. 
+      // apiClient will automatically attach the 'x-tenant-domain' header.
+      const response: any = await apiClient.get('/products/catalog');
+      
       const data = response?.data || response;
       return Array.isArray(data?.products) ? data.products : (Array.isArray(data) ? data : []); 
     },
     
-    // 2. Use `select` to filter the data. React Query is smart enough to 
-    // memoize this and only return the filtered subset to the specific component.
+    // 3. Use `select` to filter the data client-side. 
+    // React Query memoizes this and only returns the filtered subset.
     select: (products) => {
       if (categorySlug && products.length > 0) {
         return products.filter((p: any) => p.category?.slug === categorySlug);
@@ -22,7 +26,7 @@ export function useProducts(categorySlug?: string) {
       return products;
     },
     
-    // 3. Keep staleTime high. Products don't change every second.
+    // 4. Keep staleTime high. Products don't change every second.
     staleTime: 1000 * 60 * 10, // 10 minutes
   });
 }

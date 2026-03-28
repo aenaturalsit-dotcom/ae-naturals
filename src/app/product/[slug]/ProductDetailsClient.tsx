@@ -92,7 +92,7 @@ export default function ProductDetailsClient({ slug }: { slug: string }) {
               <div className="flex text-yellow-400">
                 {[...Array(5)].map((_, i) => <Star key={i} size={18} fill={i < Math.floor(product.rating || 4) ? "currentColor" : "none"} />)}
               </div>
-              <span className="text-sm text-zinc-400 font-black tracking-widest uppercase">{product.rating} ({product.reviews || 0} REVIEWS)</span>
+              <span className="text-sm text-zinc-400 font-black tracking-widest uppercase">{product.rating} ({product.reviewCount || 0} REVIEWS)</span>
             </div>
 
             <div className="flex items-baseline gap-6 mb-10">

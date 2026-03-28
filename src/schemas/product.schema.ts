@@ -32,7 +32,13 @@ export const ProductSchema = z
     deliveryInfo: z.array(z.string()),
 
     rating: z.number(),
-    reviews: z.number(),
+    
+    // ✅ FIX: Changed from 'reviews' to 'reviewCount' to match Prisma
+    reviewCount: z.number(),
+    
+    // ✅ OPTIONAL FIX: If you ever use include: { reviews: true } in Prisma, 
+    // this allows the reviews array to pass validation without crashing.
+    reviews: z.array(z.any()).optional(),
 
     categoryId: z.string(),
     storeId: z.string(),

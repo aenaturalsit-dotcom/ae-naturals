@@ -44,7 +44,7 @@ export default function ProductCard({ product }: { product: any }) {
                 className={i < Math.floor(product.rating || 5) ? "fill-yellow-400 text-yellow-400" : "text-gray-200"} 
               />
             ))}
-            <span className="text-[10px] text-gray-400 font-bold ml-1">({product.reviews || 0})</span>
+            <span className="text-[10px] text-gray-400 font-bold ml-1">({product.reviewCount || 0})</span>
           </div>
 
           <div className="flex items-center gap-2 mb-4">

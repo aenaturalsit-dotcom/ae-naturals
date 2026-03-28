@@ -23,13 +23,21 @@ export const apiClient = axios.create({
 
 /**
  * REQUEST INTERCEPTOR
- * Attaches the Access Token (from Zustand RAM) to every outgoing request.
+ * 1. Attaches the Access Token (from Zustand RAM) to every outgoing request.
+ * 2. Attaches the Tenant Domain so the backend knows which store to query dynamically.
  */
 apiClient.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
 
+  // 1. Auth Headers
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  // 2. Dynamic Tenant Domain (Multi-tenant Architecture)
+  // Ensures the backend can resolve `storeSlug` via domain/hostname
+  if (typeof window !== "undefined") {
+    config.headers["x-tenant-domain"] = window.location.hostname;
   }
 
   return config;
