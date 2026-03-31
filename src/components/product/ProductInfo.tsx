@@ -91,7 +91,7 @@ export default function ProductInfo({ product }: { product: any }) {
 
       {/* --- DYNAMIC FEATURE HIGHLIGHTS --- */}
       {/* This replaces the old hardcoded deliveryInfo / careInstructions logic */}
-      <FeatureHighlights />
+      <FeatureHighlights productId={product?.id} />
 
       {/* Buy Actions */}
       <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
