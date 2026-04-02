@@ -1,27 +1,28 @@
 // src/app/checkout/[orderId]/page.tsx
 "use client";
 import { paymentService } from "@/services/payment.service";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-export default function CheckoutProcess({ params }: { params: { orderId: string } }) {
-  const [loading, setLoading] = useState(true);
+export default function CheckoutProcess({ params }: { params: Promise<{ orderId: string }> }) {
+  // ✅ UNWRAP THE PARAMS USING React.use()
+  const resolvedParams = React.use(params);
+  const orderId = resolvedParams.orderId;
 
   useEffect(() => {
-    const initiatePayment = async () => {
+    // Now orderId is a real string, not undefined!
+    if (!orderId) return;
+
+    const initiate = async () => {
       try {
-        // Call backend to get payment session (e.g., Stripe Checkout URL)
-        const response = await paymentService.initiatePayment(params.orderId, 'STRIPE');
-        
-        if (response.url) {
-          window.location.href = response.url; // Redirect to payment gateway
-        }
-      } catch (err) {
-        console.error("Payment initiation failed", err);
+        const response = await paymentService.initiatePayment(orderId, "PAYU");
+        // ... handle response
+      } catch (error) {
+        console.error(error);
       }
     };
 
-    initiatePayment();
-  }, [params.orderId]);
+    initiate();
+  }, [orderId]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen">
