@@ -2,6 +2,7 @@
 import { apiClient } from '@/lib/api-client';
 
 export interface AddressPayload {
+  name?: string;
   firstName: string;
   lastName: string;
   email: string;

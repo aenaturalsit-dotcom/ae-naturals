@@ -32,7 +32,9 @@ export default function CheckoutPage() {
 
   // --- Shipping State (Updated for Courier Selection) ---
   const [courierOptions, setCourierOptions] = useState<CourierOption[]>([]);
-  const [selectedCourierId, setSelectedCourierId] = useState<string | null>(null);
+  const [selectedCourierId, setSelectedCourierId] = useState<string | null>(
+    null,
+  );
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
   const [shippingError, setShippingError] = useState<string | null>(null);
@@ -54,9 +56,16 @@ export default function CheckoutPage() {
   // Ref for debouncing shipping API calls
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const cartTotal = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const cartTotal = items.reduce(
+    (acc, item) => acc + item.price * item.quantity,
+    0,
+  );
   // Calculate weight for Shiprocket (fallback to 0.5kg per item if missing)
-  const totalWeight = items.reduce((acc, item) => acc + ((item as any).shippingWeightKg || 0.5) * item.quantity, 0);
+  const totalWeight = items.reduce(
+    (acc, item) =>
+      acc + ((item as any).shippingWeightKg || 0.5) * item.quantity,
+    0,
+  );
   const grandTotal = cartTotal + shippingCost;
   const storeId = items[0]?.storeId || "default-store";
 
@@ -98,6 +107,12 @@ export default function CheckoutPage() {
   }, [selectedAddress, items]);
 
   const fetchShippingEstimates = async (deliveryPincode: string) => {
+    // ✅ VALIDATION GUARD: Stop if Pincode is not exactly 6 digits
+    if (!/^[1-9][0-9]{5}$/.test(deliveryPincode)) {
+      console.warn("Invalid Pincode detected. Skipping shipping calculation.");
+      setShippingError("Invalid Pincode. Please update your address.");
+      return;
+    }
     setIsCalculatingShipping(true);
     setShippingError(null);
     setCourierOptions([]);
@@ -106,18 +121,18 @@ export default function CheckoutPage() {
 
     try {
       // Call the new estimation endpoint
-      const { data } = await apiClient.post('/shipping/estimate', {
+      const { data } = await apiClient.post("/shipping/estimate", {
         pickup_pincode: "560001", // Replace with your actual warehouse pincode
         delivery_pincode: deliveryPincode,
         weight: totalWeight,
-        cod: 0
+        cod: 0,
       });
 
       if (data.options && data.options.length > 0) {
         // Sort options by cheapest rate
         const sortedOptions = [...data.options].sort((a, b) => a.rate - b.rate);
         setCourierOptions(sortedOptions);
-        
+
         // Auto-select the cheapest option
         handleCourierSelect(sortedOptions[0]);
         toast.success("Delivery options updated");
@@ -126,7 +141,9 @@ export default function CheckoutPage() {
       }
     } catch (error: any) {
       console.error("Shipping error", error);
-      const msg = error.response?.data?.message || `Failed to fetch delivery options for ${deliveryPincode}`;
+      const msg =
+        error.response?.data?.message ||
+        `Failed to fetch delivery options for ${deliveryPincode}`;
       setShippingError(msg);
       toast.error(msg);
     } finally {
@@ -143,19 +160,33 @@ export default function CheckoutPage() {
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // 1. Strict Validation Checks
+    const isPhoneValid = /^[6-9]\d{9}$/.test(newAddress.phone);
+    const isPincodeValid = /^[1-9][0-9]{5}$/.test(newAddress.pincode);
+
+    if (!isPhoneValid) {
+      toast.error("Please enter a valid 10-digit mobile number");
+      return;
+    }
+
+    if (!isPincodeValid) {
+      toast.error("Please enter a valid 6-digit Pincode");
+      return;
+    }
+
     try {
       const added = await addressService.addAddress({
         ...newAddress,
+        // Map firstName/lastName to 'name' as expected by backend DTO
+        name: `${newAddress.firstName} ${newAddress.lastName}`.trim(),
         label: newAddress.label.toUpperCase() as "HOME" | "WORK" | "OTHER",
       });
 
       setAddresses([...addresses, added]);
       setSelectedAddress(added);
       setShowAddAddressForm(false);
-
-      toast.success("Address added successfully!");
+      toast.success("Address saved!");
     } catch (error: any) {
-      console.error(error);
       toast.error(error?.response?.data?.message || "Failed to add address");
     }
   };
@@ -206,7 +237,7 @@ export default function CheckoutPage() {
         currentStoreId,
         selectedAddress.id,
         shippingCost.toString(),
-        selectedCourierId // 🔥 Injecting selected courier
+        selectedCourierId, // 🔥 Injecting selected courier
       );
 
       useCartStore.getState().clearCart();
@@ -220,10 +251,10 @@ export default function CheckoutPage() {
 
       // 3. Delegate routing
       executePaymentFlow(responseData, order.id, router);
-
     } catch (err: any) {
       console.error(err);
-      const msg = err?.response?.data?.message || err?.message || "Checkout failed";
+      const msg =
+        err?.response?.data?.message || err?.message || "Checkout failed";
       toast.error(msg);
       setIsProcessing(false);
     }
@@ -265,28 +296,134 @@ export default function CheckoutPage() {
               </div>
             ))}
 
-            <Button variant="outline" className="w-full mt-4 border-dashed" onClick={() => setShowAddAddressForm(true)}>
+            <Button
+              variant="outline"
+              className="w-full mt-4 border-dashed"
+              onClick={() => setShowAddAddressForm(true)}
+            >
               + Add New Address
             </Button>
           </div>
         ) : (
-          <form onSubmit={handleAddAddress} className="space-y-3 bg-white p-6 rounded-xl border border-gray-100">
-             <div className="grid grid-cols-2 gap-3">
-              <input className="p-2 border rounded-md w-full" placeholder="First Name" required onChange={(e) => setNewAddress({ ...newAddress, firstName: e.target.value })} />
-              <input className="p-2 border rounded-md w-full" placeholder="Last Name" required onChange={(e) => setNewAddress({ ...newAddress, lastName: e.target.value })} />
-            </div>
-            <input className="p-2 border rounded-md w-full" placeholder="Email" type="email" required onChange={(e) => setNewAddress({ ...newAddress, email: e.target.value })} />
-            <input className="p-2 border rounded-md w-full" placeholder="Phone" type="tel" required onChange={(e) => setNewAddress({ ...newAddress, phone: e.target.value })} />
-            <input className="p-2 border rounded-md w-full" placeholder="Address Line" required onChange={(e) => setNewAddress({ ...newAddress, addressLine: e.target.value })} />
+          <form
+            onSubmit={handleAddAddress}
+            className="space-y-3 bg-white p-6 rounded-xl border border-gray-100"
+          >
             <div className="grid grid-cols-2 gap-3">
-              <input className="p-2 border rounded-md w-full" placeholder="City" required onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })} />
-              <input className="p-2 border rounded-md w-full" placeholder="State" required onChange={(e) => setNewAddress({ ...newAddress, state: e.target.value })} />
+              <input
+                className="p-2 border rounded-md w-full"
+                placeholder="First Name"
+                required
+                onChange={(e) =>
+                  setNewAddress({ ...newAddress, firstName: e.target.value })
+                }
+              />
+              <input
+                className="p-2 border rounded-md w-full"
+                placeholder="Last Name"
+                required
+                onChange={(e) =>
+                  setNewAddress({ ...newAddress, lastName: e.target.value })
+                }
+              />
             </div>
-            <input className="p-2 border rounded-md w-full" placeholder="Pincode" required onChange={(e) => setNewAddress({ ...newAddress, pincode: e.target.value })} />
+            <input
+              className="p-2 border rounded-md w-full"
+              placeholder="Email"
+              type="email"
+              required
+              onChange={(e) =>
+                setNewAddress({ ...newAddress, email: e.target.value })
+              }
+            />
+            {/* Phone Number Input */}
+            <div className="relative">
+              <input
+                className={`p-2 border rounded-md w-full focus:ring-2 focus:ring-[#006044] transition-all ${
+                  newAddress.phone && !/^[6-9]\d{9}$/.test(newAddress.phone)
+                    ? "border-red-500"
+                    : "border-gray-300"
+                }`}
+                placeholder="10-digit Phone Number"
+                type="tel"
+                maxLength={10}
+                required
+                value={newAddress.phone}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, ""); // Remove non-digits
+                  setNewAddress({ ...newAddress, phone: val });
+                }}
+              />
+              {newAddress.phone && !/^[6-9]\d{9}$/.test(newAddress.phone) && (
+                <p className="text-[10px] text-red-500 mt-1">
+                  Must be 10 digits starting with 6-9
+                </p>
+              )}
+            </div>
+
+            <input
+              className="p-2 border rounded-md w-full"
+              placeholder="Address Line"
+              required
+              onChange={(e) =>
+                setNewAddress({ ...newAddress, addressLine: e.target.value })
+              }
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                className="p-2 border rounded-md w-full"
+                placeholder="City"
+                required
+                onChange={(e) =>
+                  setNewAddress({ ...newAddress, city: e.target.value })
+                }
+              />
+              <input
+                className="p-2 border rounded-md w-full"
+                placeholder="State"
+                required
+                onChange={(e) =>
+                  setNewAddress({ ...newAddress, state: e.target.value })
+                }
+              />
+            </div>
+            {/* Pincode Input */}
+            <div className="relative">
+              <input
+                type="text"
+                className="p-2 border rounded-md w-full focus:ring-2 focus:ring-[#006044]"
+                placeholder="6-digit Pincode"
+                maxLength={6}
+                required
+                value={newAddress.pincode}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, ""); // Allow only digits
+                  setNewAddress({ ...newAddress, pincode: val });
+                }}
+              />
+              {newAddress.pincode &&
+                !/^[1-9][0-9]{5}$/.test(newAddress.pincode) && (
+                  <p className="text-[10px] text-red-500 mt-1">
+                    Enter valid 6-digit Pincode
+                  </p>
+                )}
+            </div>
 
             <div className="flex gap-3 pt-2">
-               <Button type="button" variant="outline" className="w-full" onClick={() => setShowAddAddressForm(false)}>Cancel</Button>
-               <Button type="submit" className="w-full bg-[#006044] hover:bg-[#004d36] text-white">Save Address</Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => setShowAddAddressForm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="w-full bg-[#006044] hover:bg-[#004d36] text-white"
+              >
+                Save Address
+              </Button>
             </div>
           </form>
         )}
@@ -299,8 +436,13 @@ export default function CheckoutPage() {
         <div className="space-y-3 max-h-40 overflow-y-auto pr-2 mb-6">
           {items.map((item) => (
             <div key={item.productId} className="flex justify-between text-sm">
-              <span className="text-gray-700 truncate pr-4">{item.name} <span className="text-gray-400">x{item.quantity}</span></span>
-              <span className="font-medium whitespace-nowrap">₹{(item.price * item.quantity).toFixed(2)}</span>
+              <span className="text-gray-700 truncate pr-4">
+                {item.name}{" "}
+                <span className="text-gray-400">x{item.quantity}</span>
+              </span>
+              <span className="font-medium whitespace-nowrap">
+                ₹{(item.price * item.quantity).toFixed(2)}
+              </span>
             </div>
           ))}
         </div>
@@ -310,47 +452,62 @@ export default function CheckoutPage() {
           <h3 className="font-semibold mb-3 flex items-center gap-2">
             <Truck size={18} className="text-[#006044]" /> Delivery Options
           </h3>
-          
+
           {isCalculatingShipping ? (
             <div className="flex items-center gap-2 text-sm text-[#006044] bg-[#006044]/5 p-3 rounded-lg border border-[#006044]/10">
-              <Loader2 className="animate-spin w-4 h-4" /> Fetching best rates...
+              <Loader2 className="animate-spin w-4 h-4" /> Fetching best
+              rates...
             </div>
           ) : courierOptions.length > 0 ? (
             <div className="space-y-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">
+                Select Preferred Courier
+              </p>
               {courierOptions.map((option) => (
-                <label 
+                <label
                   key={option.courier_id}
-                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                    selectedCourierId === option.courier_id ? 'border-[#006044] bg-[#006044]/5' : 'hover:border-gray-300 bg-white'
+                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
+                    selectedCourierId === option.courier_id
+                      ? "border-[#006044] bg-[#006044]/5 ring-1 ring-[#006044]"
+                      : "bg-white"
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <input 
-                      type="radio" 
-                      name="courier" 
+                    <input
+                      type="radio"
+                      name="courier"
                       checked={selectedCourierId === option.courier_id}
                       onChange={() => handleCourierSelect(option)}
-                      className="text-[#006044] focus:ring-[#006044] w-4 h-4 accent-[#006044]"
+                      className="accent-[#006044] w-4 h-4"
                     />
                     <div>
-                      <p className="font-medium text-sm text-gray-900">{option.courier_name}</p>
-                      <p className="text-xs text-gray-500">Est. Delivery: {option.etd}</p>
+                      <p className="font-medium text-sm">
+                        {option.courier_name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Est. Delivery: {option.etd}
+                      </p>
                     </div>
                   </div>
-                  <span className="font-bold text-gray-900">
-                    {option.rate === 0 ? 'FREE' : `₹${option.rate}`}
-                  </span>
+                  <span className="font-bold">₹{option.rate}</span>
                 </label>
               ))}
             </div>
-          ) : shippingError ? (
-             <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">
-               {shippingError}
-             </div>
           ) : (
-            <p className="text-sm text-gray-500 italic p-3 border rounded-lg bg-gray-50">
-              Select a delivery address to view courier options.
-            </p>
+            /* ✅ If options are empty (Toggle is OFF), show a simple confirmation message instead of selection UI */
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3">
+              <div className="p-2 bg-white rounded-full shadow-sm">
+                <span className="text-lg">🚚</span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  Standard Delivery
+                </p>
+                <p className="text-xs text-gray-500">
+                  Shipping charges will be updated at final checkout.
+                </p>
+              </div>
+            </div>
           )}
         </div>
 
@@ -360,11 +517,21 @@ export default function CheckoutPage() {
             <span>Subtotal</span>
             <span>₹{cartTotal.toFixed(2)}</span>
           </div>
-          
+
           <div className="flex justify-between items-center text-gray-600">
             <span>Shipping</span>
-            <span className={shippingCost === 0 && selectedCourierId ? "text-green-600 font-medium" : ""}>
-               {shippingCost === 0 ? (selectedCourierId ? "FREE" : "₹0.00") : `₹${shippingCost.toFixed(2)}`}
+            <span
+              className={
+                shippingCost === 0 && selectedCourierId
+                  ? "text-green-600 font-medium"
+                  : ""
+              }
+            >
+              {shippingCost === 0
+                ? selectedCourierId
+                  ? "FREE"
+                  : "₹0.00"
+                : `₹${shippingCost.toFixed(2)}`}
             </span>
           </div>
 
@@ -376,7 +543,13 @@ export default function CheckoutPage() {
 
         <Button
           onClick={handlePlaceOrder}
-          disabled={isProcessing || !!shippingError || isCalculatingShipping || addresses.length === 0 || !selectedCourierId}
+          disabled={
+            isProcessing ||
+            !!shippingError ||
+            isCalculatingShipping ||
+            addresses.length === 0 ||
+            !selectedCourierId
+          }
           className="w-full mt-6 bg-[#006044] hover:bg-[#004d36] text-white py-6 text-lg rounded-xl shadow-md transition-all active:scale-[0.98]"
         >
           {isProcessing ? (
