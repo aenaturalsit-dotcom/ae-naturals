@@ -1,119 +1,156 @@
-// src\components\home\BundleBuilder.tsx
-
+// src/components/home/BundleBuilder.tsx
 "use client";
 
-import React, { useState } from 'react';
-import { Product } from '@/types/product';
-import { ProductCard } from '@/components/ui/ProductCard';
+import React, { useState } from "react";
+import Image from "next/image";
+import ProductCard from "@/components/ui/ProductCard";
+import { Check, ShoppingBag } from "lucide-react";
+import { useAddToCart } from "@/hooks/useAddToCart"; // We will use this to add the final bundle
 
 interface BundleBuilderProps {
-  data: Product[];
+  // Accept both Array (current backend) or an Object with a products array
+  data: any[] | { products: any[] }; 
   settings?: {
     title?: string;
     subtitle?: string;
-    bundleSize?: number;
-    bundlePrice?: number;
   };
 }
 
-export const BundleBuilder = ({ data, settings }: BundleBuilderProps) => {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  
-  // Default to 5 items for 999 if the CMS settings aren't provided
-  const BUNDLE_SIZE = settings?.bundleSize || 5;
-  const BUNDLE_PRICE = settings?.bundlePrice || 999;
+const MAX_ITEMS = 5;
+const BUNDLE_PRICE = 999;
 
-  // Graceful fallback if no products are available for the bundle
-  if (!data || data.length === 0) return null;
+export function BundleBuilder({ data, settings }: BundleBuilderProps) {
+  const { isAdding } = useAddToCart();
+  const [selectedItems, setSelectedItems] = useState<any[]>([]);
 
-  const toggleProduct = (id: string) => {
-    setSelectedIds((prev) => {
+  // 1. Safely extract the products array regardless of how the backend sends it
+  const products = Array.isArray(data) ? data : (data?.products || []);
+
+  // 2. Handle selecting/deselecting an item
+  const toggleItem = (product: any) => {
+    setSelectedItems((prev) => {
+      const isSelected = prev.find((item) => item.id === product.id);
+      
       // If already selected, remove it
-      if (prev.includes(id)) {
-        return prev.filter((p) => p !== id);
+      if (isSelected) {
+        return prev.filter((item) => item.id !== product.id);
       }
+      
       // If not selected and we haven't reached the limit, add it
-      if (prev.length < BUNDLE_SIZE) {
-        return [...prev, id];
+      if (prev.length < MAX_ITEMS) {
+        return [...prev, product];
       }
-      // If limit reached, do nothing
+      
+      // If full, do nothing
       return prev;
     });
   };
 
-  return (
-    <section className="w-full bg-[#fbf9f6] py-16 px-4">
-      <div className="mx-auto max-w-7xl">
-        {/* Header */}
-        <div className="mb-10 text-center">
-          <h2 className="text-2xl font-black uppercase tracking-widest text-gray-900 md:text-3xl">
-            {settings?.title || 'Build Your Own Box'}
-          </h2>
-          <p className="mt-2 text-sm text-gray-600 md:text-base">
-            {settings?.subtitle || `Pick any ${BUNDLE_SIZE} products for only ₹${BUNDLE_PRICE}`}
-          </p>
-        </div>
+  const handleAddBundleToCart = async () => {
+    if (selectedItems.length !== MAX_ITEMS) return;
+    
+    // Here you would trigger your cart API with the bundle data.
+    // E.g., await CartApi.addBundle({ items: selectedItems, price: BUNDLE_PRICE })
+    console.log("Adding Bundle to Cart:", selectedItems);
+    alert("Bundle added successfully!");
+    setSelectedItems([]); // Reset after adding
+  };
 
-        {/* Selection Grid */}
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-          {data.map((product) => {
-            const isSelected = selectedIds.includes(product.id);
-            return (
-              <div 
-                key={product.id} 
-                onClick={() => toggleProduct(product.id)}
-                className={`relative cursor-pointer transition-all duration-300 ${
-                  isSelected 
-                    ? 'scale-[1.02] ring-4 ring-green-600 ring-offset-2' 
-                    : 'hover:scale-[1.01] hover:shadow-lg'
-                }`}
-              >
-                {/* Visual Indicator of Selection */}
+  // If no products exist, show empty state
+  if (!products || products.length === 0) {
+    return (
+      <section className="py-10 w-full max-w-7xl mx-auto px-4">
+        <div className="flex flex-col items-center justify-center py-16 bg-gray-50 rounded-3xl border border-gray-200">
+          <ShoppingBag className="w-8 h-8 text-gray-400 mb-4" />
+          <h3 className="text-lg font-bold text-gray-700">Bundle Builder Unavailable</h3>
+          <p className="text-gray-500 text-sm mt-1">No products available to build a bundle right now.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="py-12 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+      {/* HEADER */}
+      <div className="text-center mb-10">
+        <h2 className="text-3xl font-black text-gray-900 uppercase tracking-tight">
+          {settings?.title || "BUNDLE BUILDER"}
+        </h2>
+        <p className="text-gray-500 mt-2 text-lg">
+          {settings?.subtitle || `Build your custom bundle for just ₹${BUNDLE_PRICE}!`}
+        </p>
+        <p className="text-[#006044] font-bold mt-1">
+          Choose {MAX_ITEMS} items ({selectedItems.length}/{MAX_ITEMS} selected)
+        </p>
+      </div>
+
+      {/* PRODUCT GRID */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-24">
+        {products.map((product) => {
+          const isSelected = selectedItems.some((item) => item.id === product.id);
+          const isDisabled = !isSelected && selectedItems.length >= MAX_ITEMS;
+
+          return (
+            <div 
+              key={product.id} 
+              className={`relative cursor-pointer transition-all duration-300 ${isDisabled ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+              onClick={() => !isDisabled && toggleItem(product)}
+            >
+              {/* Overlay Checkmark when selected */}
+              <div className={`absolute inset-0 z-20 rounded-2xl border-4 transition-all duration-200 pointer-events-none ${isSelected ? 'border-[#006044] bg-[#006044]/10' : 'border-transparent'}`}>
                 {isSelected && (
-                  <div className="absolute -right-3 -top-3 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-green-600 text-white shadow-md">
-                    ✓
+                  <div className="absolute top-2 right-2 bg-[#006044] text-white p-1 rounded-full shadow-lg">
+                    <Check className="w-5 h-5" />
                   </div>
                 )}
-                
-                {/* Pointer events none ensures the click registers on the wrapper, not the buttons inside the card */}
-                <div className="pointer-events-none h-full w-full">
-                  <ProductCard product={product} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Floating Action Bar (Appears when user starts selecting) */}
-        {selectedIds.length > 0 && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 animate-in slide-in-from-bottom border-t border-gray-200 bg-white p-4 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
-            <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 sm:flex-row">
-              <div className="flex flex-col">
-                <span className="text-sm font-bold text-gray-500 uppercase tracking-wider">
-                  Your Box Status
-                </span>
-                <span className="text-xl font-black text-green-700">
-                  {selectedIds.length} / {BUNDLE_SIZE} Selected
-                </span>
               </div>
               
-              <button 
-                disabled={selectedIds.length !== BUNDLE_SIZE}
-                className={`w-full px-8 py-4 text-sm font-black uppercase tracking-widest sm:w-auto transition-all ${
-                  selectedIds.length === BUNDLE_SIZE 
-                    ? 'bg-black text-white hover:bg-green-700 shadow-xl' 
-                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                {selectedIds.length === BUNDLE_SIZE 
-                  ? `Add Box to Cart — ₹${BUNDLE_PRICE}` 
-                  : `Select ${BUNDLE_SIZE - selectedIds.length} more items`
-                }
-              </button>
+              {/* We reuse your pixel-perfect ProductCard, but pointer-events-none makes the click pass through to our wrapper container */}
+              <div className="pointer-events-none">
+                <ProductCard product={product} />
+              </div>
             </div>
+          );
+        })}
+      </div>
+
+      {/* STICKY BOTTOM BAR FOR BUNDLE STATUS */}
+      <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-50 p-4">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          
+          {/* Slot visualizer */}
+          <div className="flex items-center gap-2">
+            {[...Array(MAX_ITEMS)].map((_, i) => (
+              <div 
+                key={i} 
+                className={`w-12 h-12 md:w-16 md:h-16 rounded-xl flex items-center justify-center overflow-hidden border-2 ${selectedItems[i] ? 'border-[#006044]' : 'border-dashed border-gray-300 bg-gray-50'}`}
+              >
+                {selectedItems[i] ? (
+                  <Image src={selectedItems[i].images?.[0] || "/placeholder-product.png"} alt="slot" width={64} height={64} className="object-cover w-full h-full" />
+                ) : (
+                  <span className="text-gray-300 font-bold">{i + 1}</span>
+                )}
+              </div>
+            ))}
           </div>
-        )}
+
+          {/* Action Button */}
+          <button
+            onClick={handleAddBundleToCart}
+            disabled={selectedItems.length !== MAX_ITEMS || isAdding}
+            className={`px-8 py-3 rounded-xl font-bold text-white transition-all w-full md:w-auto ${
+              selectedItems.length === MAX_ITEMS 
+                ? 'bg-[#006044] hover:bg-[#004d36] shadow-lg hover:shadow-xl' 
+                : 'bg-gray-300 cursor-not-allowed'
+            }`}
+          >
+            {selectedItems.length === MAX_ITEMS 
+              ? `ADD BUNDLE - ₹${BUNDLE_PRICE}` 
+              : `SELECT ${MAX_ITEMS - selectedItems.length} MORE ITEMS`}
+          </button>
+
+        </div>
       </div>
     </section>
   );
-};
+}

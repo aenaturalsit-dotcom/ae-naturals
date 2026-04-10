@@ -15,7 +15,7 @@ const SECTION_MAP: Record<string, React.FC<any>> = {
   HERO: HeroBanner,
   CATEGORIES: CategoryTabs,
   FEATURED_PRODUCTS: ProductGrid,
-  BUNDLE_BUILDER: BundleBuilder,
+  // BUNDLE_BUILDER: BundleBuilder,
   TRUST_BADGES: TrustBadges,
 };
 

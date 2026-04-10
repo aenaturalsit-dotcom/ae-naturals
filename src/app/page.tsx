@@ -31,7 +31,7 @@ export default async function Home() {
         }
 
         // 🔥 Using Axios (apiClient) instead of native fetch
-        const response = await apiClient.get(`${backendUrl}/admin/stores/home`, {
+        const response = await apiClient.get(`/admin/stores/home`, {
           headers: {
             "x-tenant-domain": domain, // Tells the backend which store's themeConfig to load
           },
