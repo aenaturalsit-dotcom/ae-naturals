@@ -8,7 +8,6 @@ import notFoundAnimation from "@/assets/animations/404.json"; // place your JSON
 
 export default function NotFound() {
   const { openSearch } = useUIStore();
-
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-b from-white to-gray-50">
       
