@@ -129,50 +129,121 @@ export default function CheckoutPage() {
     };
   }, [selectedAddress, items]);
 
-  const fetchShippingEstimates = async (deliveryPincode: string) => {
-    // ✅ VALIDATION GUARD: Stop if Pincode is not exactly 6 digits
-    if (!/^[1-9][0-9]{5}$/.test(deliveryPincode)) {
-      console.warn("Invalid Pincode detected. Skipping shipping calculation.");
-      setShippingError("Invalid Pincode. Please update your address.");
-      return;
-    }
-    setIsCalculatingShipping(true);
-    setShippingError(null);
-    setCourierOptions([]);
-    setShippingCost(0);
-    setSelectedCourierId(null);
+  // Inside CheckoutPage component in src/app/checkout/page.tsx
 
-    try {
-      // Call the new estimation endpoint
-      const { data } = await apiClient.post("/shipping/estimate", {
-        pickup_pincode: "560001", // Replace with your actual warehouse pincode
-        delivery_pincode: deliveryPincode,
-        weight: totalWeight,
-        cod: 0,
+const fetchShippingEstimates = async (deliveryPincode: string) => {
+  const traceId = `ship_${Date.now()}`;
+
+  // Validate pincode
+  if (!/^[1-9][0-9]{5}$/.test(deliveryPincode)) {
+    console.warn(`[${traceId}] Invalid pincode entered`, {
+      deliveryPincode,
+    });
+
+    setShippingError("Invalid Pincode. Please update your address.");
+    return;
+  }
+
+  setIsCalculatingShipping(true);
+  setShippingError(null);
+  setCourierOptions([]);
+
+  const payload = {
+    delivery_pincode: deliveryPincode,
+    weight: totalWeight,
+    cod: 0,
+  };
+
+  try {
+    // Request log
+    console.group(`[${traceId}] Shipping Estimate Request`);
+    console.log("Endpoint:", "/shipping/estimate");
+    console.log("Payload:", payload);
+    console.log("Total Weight:", totalWeight);
+    console.groupEnd();
+
+    const response = await apiClient.post("/shipping/estimate", payload);
+
+    // Success log
+    console.group(`[${traceId}] Shipping Estimate Success`);
+    console.log("Status:", response.status);
+    console.log("Response:", response.data);
+    console.groupEnd();
+
+    const { data } = response;
+
+    if (data?.options?.length > 0) {
+      const sortedOptions = [...data.options].sort(
+        (a, b) => Number(a.rate) - Number(b.rate)
+      );
+
+      console.table(
+        sortedOptions.map((option: any) => ({
+          courier: option.courier_name,
+          rate: option.rate,
+          etd: option.etd,
+        }))
+      );
+
+      setCourierOptions(sortedOptions);
+      handleCourierSelect(sortedOptions[0]);
+    } else {
+      console.warn(`[${traceId}] No courier options available`, {
+        response: data,
       });
 
-      if (data.options && data.options.length > 0) {
-        // Sort options by cheapest rate
-        const sortedOptions = [...data.options].sort((a, b) => a.rate - b.rate);
-        setCourierOptions(sortedOptions);
+      setShippingError("No delivery partners available for this area.");
+    }
+  } catch (error: any) {
+    // Full error log
+    console.group(`[${traceId}] Shipping Estimate Failed`);
 
-        // Auto-select the cheapest option
-        handleCourierSelect(sortedOptions[0]);
-        // toast.success("Delivery options updated");
-      } else {
-        setShippingError("Delivery is not available for this pincode.");
-      }
-    } catch (error: any) {
-      console.error("Shipping error", error);
+    console.error("Error Message:", error?.message);
+    console.error("Error Code:", error?.code);
+    console.error("Request Config:", error?.config);
+
+    if (error?.response) {
+      console.error("Response Status:", error.response.status);
+      console.error("Response Headers:", error.response.headers);
+      console.error("Response Data:", error.response.data);
+    }
+
+    if (error?.request) {
+      console.error("Raw Request:", error.request);
+    }
+
+    console.error("Full Error Object:", error);
+    console.groupEnd();
+
+    // User-facing handling
+    if (error.response?.status === 401) {
+      setShippingError(
+        "Shipping authentication failed. Please contact support."
+      );
+      toast.error("Courier authentication failed.");
+    } else if (error.response?.status === 400) {
       const msg =
         error.response?.data?.message ||
-        `Failed to fetch delivery options for ${deliveryPincode}`;
+        "Invalid shipping request payload.";
       setShippingError(msg);
       toast.error(msg);
-    } finally {
-      setIsCalculatingShipping(false);
+    } else if (error.response?.status === 500) {
+      setShippingError(
+        "Shipping service is temporarily unavailable. Please try again in a few minutes."
+      );
+      toast.error("Courier service connection failed.");
+    } else {
+      const msg =
+        error.response?.data?.message ||
+        "Could not fetch shipping rates.";
+      setShippingError(msg);
+      toast.error(msg);
     }
-  };
+  } finally {
+    console.info(`[${traceId}] Shipping estimate request completed`);
+    setIsCalculatingShipping(false);
+  }
+};
 
   const handleCourierSelect = (option: CourierOption) => {
     setSelectedCourierId(option.courier_id);
