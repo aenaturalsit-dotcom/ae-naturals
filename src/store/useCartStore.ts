@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { CartService } from "@/services/cart.service";
 import { useAuthStore } from "./useAuthStore";
+import { toast } from "sonner";
 
 export interface CartItem {
   productId: string;
@@ -34,14 +35,12 @@ export const useCartStore = create<CartState>()(
       items: [],
       isLoading: false,
 
-
       syncCart: async () => {
         const { items, fetchCart } = get();
         const currentUser = useAuthStore.getState().user;
 
         if (!currentUser) return;
 
-        // 1. If local cart has items, sync them safely
         if (items.length > 0) {
           try {
             const payload = items.map((i: CartItem) => ({
@@ -52,21 +51,17 @@ export const useCartStore = create<CartState>()(
 
             const res: any = await CartService.mergeCart({ items: payload });
 
-            // 🔥 Edge Case: If backend rejects it silently, abort so we don't lose local items
             if (res && res.success === false) {
               console.warn("Cart merge rejected:", res.message);
               return;
             }
-
-            // ❌ REMOVED: set({ items: [] });
-            // Never manually wipe! Let fetchCart replace the state seamlessly.
-          } catch (err) {
-            console.error("Cart Sync failed:", err);
-            return; // Abort fetchCart if network fails
+          } catch (err: any) {
+            // 🔥 Proper Error Extraction
+            const msg = err.response?.data?.message || "Failed to sync cart.";
+            console.error("Cart Sync failed:", msg);
+            return; 
           }
         }
-
-        // 2. Fetch the final unified DB cart
         await fetchCart();
       },
 
@@ -77,11 +72,9 @@ export const useCartStore = create<CartState>()(
         set({ isLoading: true });
         try {
           const res: any = await CartService.getCart();
-
           if (res && res.items) {
             const normalized = res.items.map((item: any) => ({
               productId: item.productId,
-              // 🔥 FIX: Normalize Prisma 'null' to frontend 'undefined'
               variantId: item.variantId || undefined, 
               name: item.variant?.name ? `${item.product.name} - ${item.variant.name}` : item.product.name,
               price: item.priceSnapshot, 
@@ -89,18 +82,12 @@ export const useCartStore = create<CartState>()(
               quantity: item.quantity,
               storeId: item.tenantId, 
             }));
-            
-            set({ items: normalized });}
-             else if (
-            res &&
-            Array.isArray(res.items) &&
-            res.items.length === 0
-          ) {
-            // Only set to empty if the DB EXPLICITLY confirms the cart is empty
+            set({ items: normalized });
+          } else if (res && Array.isArray(res.items) && res.items.length === 0) {
             set({ items: [] });
           }
-        } catch (error) {
-          console.error("fetchCart failed", error);
+        } catch (error: any) {
+          console.error("fetchCart failed", error.response?.data?.message || error.message);
         } finally {
           set({ isLoading: false });
         }
@@ -117,25 +104,25 @@ export const useCartStore = create<CartState>()(
               quantity: newItem.quantity,
             });
             await get().fetchCart();
-          } catch (err) {
-            console.error("Failed to add item to remote cart", err);
+          } catch (err: any) {
+            // 🔥 EXTRACT THE "Insufficient stock" MESSAGE HERE
+            const errorMessage = err.response?.data?.message || "Failed to add item.";
+            toast.error(`❌ ${errorMessage}`); // Replace with a toast library if you have one
+            console.error("Failed to add item to remote cart", errorMessage);
           }
         } else {
-          // Guest: Manage state locally
+          // Guest: Manage state locally (Stock is checked on backend later during sync/checkout)
           const currentItems = get().items;
           const existing = currentItems.find(
-            (i: CartItem) =>
-              i.productId === newItem.productId &&
-              i.variantId === newItem.variantId,
+            (i: CartItem) => i.productId === newItem.productId && i.variantId === newItem.variantId
           );
 
           if (existing) {
             set({
               items: currentItems.map((i: CartItem) =>
-                i.productId === newItem.productId &&
-                i.variantId === newItem.variantId
+                i.productId === newItem.productId && i.variantId === newItem.variantId
                   ? { ...i, quantity: i.quantity + newItem.quantity }
-                  : i,
+                  : i
               ),
             });
           } else {
@@ -150,42 +137,36 @@ export const useCartStore = create<CartState>()(
           try {
             await CartService.removeItem({ productId, variantId });
             await get().fetchCart();
-          } catch (err) {
-            console.error("Remove failed", err);
+          } catch (err: any) {
+            console.error("Remove failed", err.response?.data?.message || err.message);
           }
         } else {
           set({
             items: get().items.filter(
-              (i: CartItem) =>
-                !(i.productId === productId && i.variantId === variantId),
+              (i: CartItem) => !(i.productId === productId && i.variantId === variantId)
             ),
           });
         }
       },
 
-      updateQuantity: async (
-        productId: string,
-        quantity: number,
-        variantId?: string,
-      ) => {
+      updateQuantity: async (productId: string, quantity: number, variantId?: string) => {
         const { user } = useAuthStore.getState();
         if (user) {
           try {
-            await CartService.updateQuantity({
-              productId,
-              variantId,
-              quantity,
-            });
+            await CartService.updateQuantity({ productId, variantId, quantity });
             await get().fetchCart();
-          } catch (err) {
-            console.error("Update failed", err);
+          } catch (err: any) {
+            // 🔥 EXTRACT STOCK ERROR DURING QUANTITY UPDATE
+            const errorMessage = err.response?.data?.message || "Update failed.";
+            toast.error(`❌ ${errorMessage}`);
+            console.error("Update failed", errorMessage);
           }
         } else {
           set({
             items: get().items.map((i: CartItem) =>
               i.productId === productId && i.variantId === variantId
                 ? { ...i, quantity }
-                : i,
+                : i
             ),
           });
         }
@@ -200,6 +181,6 @@ export const useCartStore = create<CartState>()(
     {
       name: "flower-fairy-cart",
       partialize: (state: CartState) => ({ items: state.items }),
-    },
-  ),
+    }
+  )
 );
