@@ -1,66 +1,67 @@
-// src\app\checkout\page.tsx
+// src/app/checkout/page.tsx
 "use client";
 
 import { useCartStore } from "@/store/useCartStore";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { orderService } from "@/services/order.service";
-import { paymentService } from "@/services/payment.service";
 import { addressService, Address } from "@/services/address.service";
+import { paymentService } from "@/services/payment.service";
 import { apiClient } from "@/lib/api-client";
 import { toast } from "sonner";
-import { Loader2, TruckIcon, Truck } from "lucide-react";
+import { Loader2, Truck } from "lucide-react";
 import { PaymentInitiateResponse } from "@/types/payment";
 import { executePaymentFlow } from "@/lib/payment-handler";
 
 interface CourierOption {
-  courier_id: string;
-  courier_name: string;
+  courierPartnerId?: string; // Mapped from backend DTO
+  courier_id?: string;       // Legacy support
+  courierName?: string;
+  courier_name?: string;
   rate: number;
   etd: string;
+  isRecommended?: boolean;
 }
 
 export default function CheckoutPage() {
   const { items } = useCartStore();
   const router = useRouter();
-  const searchParams = useSearchParams(); // 🔥 Add this
-  // --- 🔥 NEW: Listen for Payment Redirect Errors ---
+  const searchParams = useSearchParams();
+
+  // --- Listen for Payment Redirect Errors ---
   useEffect(() => {
     const errorParam = searchParams.get("error");
     const reasonParam = searchParams.get("reason");
 
     if (errorParam) {
-      // 1. Show the appropriate error message
       if (errorParam === "payment_failed") {
         toast.error("Payment failed or was cancelled. Please try again.");
       } else if (errorParam === "hash_mismatch") {
-        toast.error(
-          `Security validation failed: ${reasonParam || "Contact support"}`,
-        );
+        toast.error(`Security validation failed: ${reasonParam || "Contact support"}`);
       } else {
         toast.error("An error occurred during checkout.");
       }
-
-      // 2. Clean up the URL so the error doesn't keep showing on refresh
-      // This removes the ?error=... from the browser address bar silently
       router.replace("/checkout", { scroll: false });
     }
   }, [searchParams, router]);
+
   // --- State Management ---
   const [isProcessing, setIsProcessing] = useState(false);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<Address | null>(null);
   const [showAddAddressForm, setShowAddAddressForm] = useState(false);
 
-  // --- Shipping State (Updated for Courier Selection) ---
+  // --- Shipping State ---
   const [courierOptions, setCourierOptions] = useState<CourierOption[]>([]);
-  const [selectedCourierId, setSelectedCourierId] = useState<string | null>(
-    null,
-  );
+  const [selectedCourierId, setSelectedCourierId] = useState<string | null>(null);
   const [shippingCost, setShippingCost] = useState<number>(0);
   const [isCalculatingShipping, setIsCalculatingShipping] = useState(false);
   const [shippingError, setShippingError] = useState<string | null>(null);
+
+  // 🔥 RESTORED: Add these states to track backend config flags
+  const [showEstimation, setShowEstimation] = useState<boolean>(true);
+  const [topCourierName, setTopCourierName] = useState<string>("Standard Delivery");
+  const [topCourierEtd, setTopCourierEtd] = useState<string>("");
 
   // --- Form State ---
   const [newAddress, setNewAddress] = useState({
@@ -76,19 +77,9 @@ export default function CheckoutPage() {
     isDefault: false,
   });
 
-  // Ref for debouncing shipping API calls
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const cartTotal = items.reduce(
-    (acc, item) => acc + item.price * item.quantity,
-    0,
-  );
-  // Calculate weight for Shiprocket (fallback to 0.5kg per item if missing)
-  const totalWeight = items.reduce(
-    (acc, item) =>
-      acc + ((item as any).shippingWeightKg || 0.5) * item.quantity,
-    0,
-  );
+  const cartTotal = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
   const grandTotal = cartTotal + shippingCost;
   const storeId = items[0]?.storeId || "default-store";
 
@@ -120,141 +111,96 @@ export default function CheckoutPage() {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
       debounceTimer.current = setTimeout(() => {
-        fetchShippingEstimates(selectedAddress.pincode);
+        fetchSecureShippingRates(selectedAddress);
       }, 500);
     }
 
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [selectedAddress, items]);
+  }, [selectedAddress, items, cartTotal, storeId]);
 
-  // Inside CheckoutPage component in src/app/checkout/page.tsx
+  const fetchSecureShippingRates = async (address: Address) => {
+    const traceId = `ship_calc_${Date.now()}`;
 
-const fetchShippingEstimates = async (deliveryPincode: string) => {
-  const traceId = `ship_${Date.now()}`;
+    if (!/^[1-9][0-9]{5}$/.test(address.pincode)) {
+      setShippingError("Invalid Pincode. Please update your address.");
+      return;
+    }
 
-  // Validate pincode
-  if (!/^[1-9][0-9]{5}$/.test(deliveryPincode)) {
-    console.warn(`[${traceId}] Invalid pincode entered`, {
-      deliveryPincode,
-    });
+    setIsCalculatingShipping(true);
+    setShippingError(null);
+    setCourierOptions([]);
 
-    setShippingError("Invalid Pincode. Please update your address.");
-    return;
-  }
+    // We must call /shipping/calculate so the backend generates the DB lock (ShippingQuotes)
+    const payload = {
+      storeId: storeId,
+      address: {
+        state: address.state || "",
+        pincode: address.pincode,
+      },
+      items: items.map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        quantity: item.quantity,
+      })),
+      cartTotal: cartTotal,
+      paymentMethod: "PREPAID",
+    };
 
-  setIsCalculatingShipping(true);
-  setShippingError(null);
-  setCourierOptions([]);
+    try {
+      const response = await apiClient.post("/shipping/calculate", payload);
+      const { data } = response;
 
-  const payload = {
-    delivery_pincode: deliveryPincode,
-    weight: totalWeight,
-    cod: 0,
+      // Update visibility flag based on backend config
+      setShowEstimation(data?.showEstimation ?? true);
+
+      if (data?.options && data.options.length > 0) {
+        // Multi-Courier Flow
+        const sortedOptions = [...data.options].sort((a, b) => Number(a.rate) - Number(b.rate));
+        setCourierOptions(sortedOptions);
+        
+        // Auto-select the recommended one, or the cheapest
+        const recommended = sortedOptions.find((o) => o.isRecommended) || sortedOptions[0];
+        handleCourierSelect(recommended);
+      } else {
+        // Fallback Flow (If show_estimation is false, backend forces this path)
+        setCourierOptions([]);
+        setSelectedCourierId(data?.courierPartnerId || "default");
+        setShippingCost(data?.shippingCost || 0);
+
+        // Save the preferred courier data for the UI
+        setTopCourierName(data?.courierName || "Standard Delivery");
+        setTopCourierEtd(data?.estimatedDays || "3-5");
+      }
+    } catch (error: any) {
+      console.error(`[${traceId}] Shipping Calculation Failed`, error);
+      
+      const msg = error.response?.data?.message || "Could not fetch shipping rates. Please try again.";
+      setShippingError(msg);
+      toast.error(msg);
+      
+      // Reset values on hard failure
+      setSelectedCourierId(null);
+      setShippingCost(0);
+    } finally {
+      setIsCalculatingShipping(false);
+    }
   };
 
-  try {
-    // Request log
-    console.group(`[${traceId}] Shipping Estimate Request`);
-    console.log("Endpoint:", "/shipping/estimate");
-    console.log("Payload:", payload);
-    console.log("Total Weight:", totalWeight);
-    console.groupEnd();
-
-    const response = await apiClient.post("/shipping/estimate", payload);
-
-    // Success log
-    console.group(`[${traceId}] Shipping Estimate Success`);
-    console.log("Status:", response.status);
-    console.log("Response:", response.data);
-    console.groupEnd();
-
-    const { data } = response;
-
-    if (data?.options?.length > 0) {
-      const sortedOptions = [...data.options].sort(
-        (a, b) => Number(a.rate) - Number(b.rate)
-      );
-
-      console.table(
-        sortedOptions.map((option: any) => ({
-          courier: option.courier_name,
-          rate: option.rate,
-          etd: option.etd,
-        }))
-      );
-
-      setCourierOptions(sortedOptions);
-      handleCourierSelect(sortedOptions[0]);
-    } else {
-      console.warn(`[${traceId}] No courier options available`, {
-        response: data,
-      });
-
-      setShippingError("No delivery partners available for this area.");
-    }
-  } catch (error: any) {
-    // Full error log
-    console.group(`[${traceId}] Shipping Estimate Failed`);
-
-    console.error("Error Message:", error?.message);
-    console.error("Error Code:", error?.code);
-    console.error("Request Config:", error?.config);
-
-    if (error?.response) {
-      console.error("Response Status:", error.response.status);
-      console.error("Response Headers:", error.response.headers);
-      console.error("Response Data:", error.response.data);
-    }
-
-    if (error?.request) {
-      console.error("Raw Request:", error.request);
-    }
-
-    console.error("Full Error Object:", error);
-    console.groupEnd();
-
-    // User-facing handling
-    if (error.response?.status === 401) {
-      setShippingError(
-        "Shipping authentication failed. Please contact support."
-      );
-      toast.error("Courier authentication failed.");
-    } else if (error.response?.status === 400) {
-      const msg =
-        error.response?.data?.message ||
-        "Invalid shipping request payload.";
-      setShippingError(msg);
-      toast.error(msg);
-    } else if (error.response?.status === 500) {
-      setShippingError(
-        "Shipping service is temporarily unavailable. Please try again in a few minutes."
-      );
-      toast.error("Courier service connection failed.");
-    } else {
-      const msg =
-        error.response?.data?.message ||
-        "Could not fetch shipping rates.";
-      setShippingError(msg);
-      toast.error(msg);
-    }
-  } finally {
-    console.info(`[${traceId}] Shipping estimate request completed`);
-    setIsCalculatingShipping(false);
-  }
-};
-
   const handleCourierSelect = (option: CourierOption) => {
-    setSelectedCourierId(option.courier_id);
-    setShippingCost(option.rate);
+    // Accommodate both new DTO format and legacy format
+    const id = option.courierPartnerId || option.courier_id;
+    if (id) {
+      setSelectedCourierId(id);
+      setShippingCost(option.rate);
+    }
   };
 
   // --- Add Address ---
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 1. Strict Validation Checks
     const isPhoneValid = /^[6-9]\d{9}$/.test(newAddress.phone);
     const isPincodeValid = /^[1-9][0-9]{5}$/.test(newAddress.pincode);
 
@@ -271,7 +217,6 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
     try {
       const added = await addressService.addAddress({
         ...newAddress,
-        // Map firstName/lastName to 'name' as expected by backend DTO
         name: `${newAddress.firstName} ${newAddress.lastName}`.trim(),
         label: newAddress.label.toUpperCase() as "HOME" | "WORK" | "OTHER",
       });
@@ -281,11 +226,7 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
       setShowAddAddressForm(false);
       toast.success("Address saved!");
     } catch (error: any) {
-      const msg =
-        error?.response?.data?.message?.[0] ||
-        error?.response?.data?.message ||
-        "Failed to add address";
-
+      const msg = error?.response?.data?.message?.[0] || error?.response?.data?.message || "Failed to add address";
       toast.error(msg);
     }
   };
@@ -312,56 +253,36 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
       return;
     }
 
-    const currentItems = useCartStore.getState().items;
-
-    if (!currentItems || currentItems.length === 0) {
-      toast.error("Your cart is empty");
-      return;
-    }
-
-    const currentStoreId = currentItems[0]?.storeId;
-
-    if (!currentStoreId) {
-      toast.error("Store info missing");
+    if (!items || items.length === 0 || !storeId) {
+      toast.error("Your cart is empty or missing store info");
       return;
     }
 
     setIsProcessing(true);
+    const toastId = toast.loading("Initializing secure payment...");
 
     try {
-     const toastId = toast.loading("Initializing secure payment...");
-
-      // 1. Create CheckoutSession (NOT an Order)
-      // This locks in the intent to pay but does not finalize anything in the DB
+      // 1. Create CheckoutSession (Locks intent, inventory, and courier DB quote)
       const sessionRes = await apiClient.post("/checkout/session", {
-        storeId: currentStoreId,
+        storeId: storeId,
         addressId: selectedAddress.id,
-        shippingCost: shippingCost.toString(),
         courierId: selectedCourierId,
+        paymentMethod: "PREPAID",
       });
 
       const session = sessionRes.data;
-
-      // ❌ FATAL BUG REMOVED: Do NOT call clearCart() here anymore!
-      // The cart remains intact until the webhook confirms success.
 
       // 2. Fetch the payment initiation data using the SESSION ID
       const payRes = await paymentService.initiatePayment(session.id);
       const responseData: PaymentInitiateResponse = payRes?.data || payRes;
 
-      console.log("BACKEND PAYLOAD:", responseData);
-// ✅ Dismiss loader BEFORE redirecting
-  toast.dismiss(toastId);
+      toast.dismiss(toastId);
 
-      // 3. Delegate routing (passing the session.id so the frontend tracks it)
+      // 3. Delegate routing
       executePaymentFlow(responseData, session.id, router);
     } catch (err: any) {
-      console.error(err);
-      // ❌ ALWAYS dismiss loader on error
-      toast.dismiss();
-
-      const msg =
-        err?.response?.data?.message || err?.message || "Checkout failed";
+      toast.dismiss(toastId);
+      const msg = err?.response?.data?.message || err?.message || "Checkout failed";
       toast.error(msg);
       setIsProcessing(false);
     }
@@ -421,17 +342,13 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
                 className="p-2 border rounded-md w-full"
                 placeholder="First Name"
                 required
-                onChange={(e) =>
-                  setNewAddress({ ...newAddress, firstName: e.target.value })
-                }
+                onChange={(e) => setNewAddress({ ...newAddress, firstName: e.target.value })}
               />
               <input
                 className="p-2 border rounded-md w-full"
                 placeholder="Last Name"
                 required
-                onChange={(e) =>
-                  setNewAddress({ ...newAddress, lastName: e.target.value })
-                }
+                onChange={(e) => setNewAddress({ ...newAddress, lastName: e.target.value })}
               />
             </div>
             <input
@@ -439,11 +356,8 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
               placeholder="Email"
               type="email"
               required
-              onChange={(e) =>
-                setNewAddress({ ...newAddress, email: e.target.value })
-              }
+              onChange={(e) => setNewAddress({ ...newAddress, email: e.target.value })}
             />
-            {/* Phone Number Input */}
             <div className="relative">
               <input
                 className={`p-2 border rounded-md w-full focus:ring-2 focus:ring-[#217A6E] transition-all ${
@@ -457,14 +371,12 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
                 required
                 value={newAddress.phone}
                 onChange={(e) => {
-                  const val = e.target.value.replace(/\D/g, ""); // Remove non-digits
+                  const val = e.target.value.replace(/\D/g, "");
                   setNewAddress({ ...newAddress, phone: val });
                 }}
               />
               {newAddress.phone && !/^[6-9]\d{9}$/.test(newAddress.phone) && (
-                <p className="text-[10px] text-red-500 mt-1">
-                  Must be 10 digits starting with 6-9
-                </p>
+                <p className="text-[10px] text-red-500 mt-1">Must be 10 digits starting with 6-9</p>
               )}
             </div>
 
@@ -472,29 +384,23 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
               className="p-2 border rounded-md w-full"
               placeholder="Address Line"
               required
-              onChange={(e) =>
-                setNewAddress({ ...newAddress, addressLine: e.target.value })
-              }
+              onChange={(e) => setNewAddress({ ...newAddress, addressLine: e.target.value })}
             />
             <div className="grid grid-cols-2 gap-3">
               <input
                 className="p-2 border rounded-md w-full"
                 placeholder="City"
                 required
-                onChange={(e) =>
-                  setNewAddress({ ...newAddress, city: e.target.value })
-                }
+                onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
               />
               <input
                 className="p-2 border rounded-md w-full"
                 placeholder="State"
                 required
-                onChange={(e) =>
-                  setNewAddress({ ...newAddress, state: e.target.value })
-                }
+                onChange={(e) => setNewAddress({ ...newAddress, state: e.target.value })}
               />
             </div>
-            {/* Pincode Input */}
+            
             <div className="relative">
               <input
                 type="text"
@@ -504,16 +410,13 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
                 required
                 value={newAddress.pincode}
                 onChange={(e) => {
-                  const val = e.target.value.replace(/\D/g, ""); // Allow only digits
+                  const val = e.target.value.replace(/\D/g, "");
                   setNewAddress({ ...newAddress, pincode: val });
                 }}
               />
-              {newAddress.pincode &&
-                !/^[1-9][0-9]{5}$/.test(newAddress.pincode) && (
-                  <p className="text-[10px] text-red-500 mt-1">
-                    Enter valid 6-digit Pincode
-                  </p>
-                )}
+              {newAddress.pincode && !/^[1-9][0-9]{5}$/.test(newAddress.pincode) && (
+                <p className="text-[10px] text-red-500 mt-1">Enter valid 6-digit Pincode</p>
+              )}
             </div>
 
             <div className="flex gap-3 pt-2">
@@ -525,10 +428,7 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                className="w-full bg-[#217A6E] hover:bg-[#004d36] text-white"
-              >
+              <Button type="submit" className="w-full bg-[#217A6E] hover:bg-[#004d36] text-white">
                 Save Address
               </Button>
             </div>
@@ -544,8 +444,7 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
           {items.map((item) => (
             <div key={item.productId} className="flex justify-between text-sm">
               <span className="text-gray-700 truncate pr-4">
-                {item.name}{" "}
-                <span className="text-gray-400">x{item.quantity}</span>
+                {item.name} <span className="text-gray-400">x{item.quantity}</span>
               </span>
               <span className="font-medium whitespace-nowrap">
                 ₹{(item.price * item.quantity).toFixed(2)}
@@ -554,7 +453,7 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
           ))}
         </div>
 
-        {/* 🔥 NEW: Courier Selection UI */}
+        {/* Courier Selection UI */}
         <div className="border-t pt-4 mb-6">
           <h3 className="font-semibold mb-3 flex items-center gap-2">
             <Truck size={18} className="text-[#217A6E]" /> Delivery Options
@@ -562,56 +461,69 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
 
           {isCalculatingShipping ? (
             <div className="flex items-center gap-2 text-sm text-[#217A6E] bg-[#217A6E]/5 p-3 rounded-lg border border-[#217A6E]/10">
-              <Loader2 className="animate-spin w-4 h-4" /> Fetching best
-              rates...
+              <Loader2 className="animate-spin w-4 h-4" /> Fetching best rates...
             </div>
           ) : courierOptions.length > 0 ? (
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">
                 Select Preferred Courier
               </p>
-              {courierOptions.map((option) => (
-                <label
-                  key={option.courier_id}
-                  className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
-                    selectedCourierId === option.courier_id
-                      ? "border-[#217A6E] bg-[#217A6E]/5 ring-1 ring-[#217A6E]"
-                      : "bg-white"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="radio"
-                      name="courier"
-                      checked={selectedCourierId === option.courier_id}
-                      onChange={() => handleCourierSelect(option)}
-                      className="accent-[#217A6E] w-4 h-4"
-                    />
-                    <div>
-                      <p className="font-medium text-sm">
-                        {option.courier_name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Est. Delivery: {option.etd}
-                      </p>
+              {courierOptions.map((option) => {
+                const optId = option.courierPartnerId || option.courier_id;
+                const optName = option.courierName || option.courier_name;
+
+                return (
+                  <label
+                    key={optId}
+                    className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all ${
+                      selectedCourierId === optId
+                        ? "border-[#217A6E] bg-[#217A6E]/5 ring-1 ring-[#217A6E]"
+                        : "bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="courier"
+                        checked={selectedCourierId === optId}
+                        onChange={() => handleCourierSelect(option)}
+                        className="accent-[#217A6E] w-4 h-4"
+                      />
+                      <div>
+                        <p className="font-medium text-sm flex items-center gap-2">
+                          {optName}
+                          {option.isRecommended && (
+                            <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                              Best
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-500">Est. Delivery: {option.etd} days</p>
+                      </div>
                     </div>
-                  </div>
-                  <span className="font-bold">₹{option.rate}</span>
-                </label>
-              ))}
+                    <span className="font-bold">₹{option.rate}</span>
+                  </label>
+                );
+              })}
             </div>
           ) : (
-            /* ✅ If options are empty (Toggle is OFF), show a simple confirmation message instead of selection UI */
+            /* 🔥 RESTORED: Dynamic Fallback UI respecting the showEstimation flag */
             <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3">
               <div className="p-2 bg-white rounded-full shadow-sm">
                 <span className="text-lg">🚚</span>
               </div>
               <div>
                 <p className="text-sm font-semibold text-gray-900">
-                  Standard Delivery
+                  {showEstimation ? topCourierName : "Standard Delivery"}
                 </p>
                 <p className="text-xs text-gray-500">
-                  Shipping charges will be updated at final checkout.
+                  {shippingError ? (
+                    <span className="text-red-500">{shippingError}</span>
+                  ) : showEstimation && topCourierEtd ? (
+                    `Delivery by: ${topCourierEtd} days`
+                  ) : (
+                    "Shipping charges will be updated at final checkout."
+                  )}
                 </p>
               </div>
             </div>
@@ -627,13 +539,7 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
 
           <div className="flex justify-between items-center text-gray-600">
             <span>Shipping</span>
-            <span
-              className={
-                shippingCost === 0 && selectedCourierId
-                  ? "text-green-600 font-medium"
-                  : ""
-              }
-            >
+            <span className={shippingCost === 0 && selectedCourierId ? "text-green-600 font-medium" : ""}>
               {shippingCost === 0
                 ? selectedCourierId
                   ? "FREE"
@@ -657,7 +563,7 @@ const fetchShippingEstimates = async (deliveryPincode: string) => {
             addresses.length === 0 ||
             !selectedCourierId
           }
-          className="w-full mt-6 bg-[#217A6E] hover:bg-[#004d36] text-white py-6 text-lg rounded-xl shadow-md transition-all active:scale-[0.98]"
+          className="w-full mt-6 bg-[#217A6E] hover:bg-[#004d36] text-white py-6 text-lg rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-60"
         >
           {isProcessing ? (
             <span className="flex items-center gap-2">
