@@ -183,10 +183,11 @@ export default function CartPage() {
                 <span>Subtotal</span>
                 <span className="font-semibold">₹{subtotal.toLocaleString('en-IN')}</span>
               </div>
-              <div className="flex justify-between text-gray-600">
+              {/* <div className="flex justify-between text-gray-600">
                 <span>Est. Delivery Charges</span>
                 <span className="font-semibold">{estimatedDelivery === 0 ? "FREE" : `₹${estimatedDelivery}`}</span>
-              </div>
+              </div> */}
+              
             </div>
             
             <div className="flex justify-between font-black text-xl py-6">
