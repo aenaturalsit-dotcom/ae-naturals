@@ -187,6 +187,7 @@ export default function CartPage() {
                 <span>Est. Delivery Charges</span>
                 <span className="font-semibold">{estimatedDelivery === 0 ? "FREE" : `₹${estimatedDelivery}`}</span>
               </div> */}
+              
             </div>
             
             <div className="flex justify-between font-black text-xl py-6">
