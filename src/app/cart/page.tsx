@@ -1,4 +1,6 @@
-// src/app/checkout/page.tsx
+// src\app\cart\page.tsx
+
+
 "use client";
 
 import { useCartStore } from "@/store/useCartStore";
@@ -13,6 +15,7 @@ import { Loader2, ShoppingBag, Truck } from "lucide-react";
 import { PaymentInitiateResponse } from "@/types/payment";
 import { executePaymentFlow } from "@/lib/payment-handler";
 import Link from "next/link";
+import { load } from "@cashfreepayments/cashfree-js"; // 🔥 Imported Cashfree SDK
 
 interface CourierOption {
   courierPartnerId?: string; 
@@ -274,9 +277,36 @@ export default function CheckoutPage() {
 
       const session = sessionRes.data;
       const payRes = await paymentService.initiatePayment(session.id);
-      const responseData: PaymentInitiateResponse = payRes?.data || payRes;
+      
+      // We extend the type here to satisfy TS for the new paymentSessionId property
+      const responseData: PaymentInitiateResponse & { paymentSessionId?: string } = payRes?.data || payRes;
 
       toast.dismiss(toastId);
+
+      // 🔥 CASHFREE SDK INTERCEPTION 🔥
+      if (responseData.provider === "CASHFREE" && responseData.paymentSessionId) {
+        try {
+          // Initialize SDK. Mode is automatically managed based on environment variable or defaults to sandbox
+          const cashfree = await load({
+            mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === "production" ? "production" : "sandbox",
+          });
+
+          if (cashfree) {
+            cashfree.checkout({
+              paymentSessionId: responseData.paymentSessionId,
+            });
+          } else {
+            throw new Error("Failed to load Cashfree SDK");
+          }
+        } catch (cfError) {
+          console.error("Cashfree initialization failed:", cfError);
+          toast.error("Failed to load the payment gateway. Please try again.");
+          setIsProcessing(false);
+        }
+        return; // Prevent execution of executePaymentFlow
+      }
+
+      // 🔁 Fallback for other providers (PayU, PhonePe, Stripe, Razorpay)
       executePaymentFlow(responseData, session.id, router);
     } catch (err: any) {
       toast.dismiss(toastId);
