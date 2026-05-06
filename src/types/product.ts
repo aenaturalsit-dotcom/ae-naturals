@@ -19,7 +19,8 @@ export interface HomepageConfig {
 export interface ProductVariant {
   id: string;
   name: string;
-  priceModifier: number;
+   price: number;
+  oldPrice: number;
   stock: number;
 }
 
@@ -38,8 +39,7 @@ export interface Product {
   name: string;
   slug: string;
   description: string;
-  price: number;
-  oldPrice: number;
+ 
   rating: number;
   reviewCount: number;
   images: string[];
