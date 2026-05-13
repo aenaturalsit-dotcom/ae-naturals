@@ -1,3 +1,6 @@
+// src\app\product\[slug]\page.tsx
+
+
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { AxiosError } from "axios";
