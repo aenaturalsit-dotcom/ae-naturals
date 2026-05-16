@@ -1,36 +1,53 @@
+// src/app/layout.tsx
+
 import type { Metadata } from "next";
+import localFont from "next/font/local";
+
+import "./globals.css";
+
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
-import "./globals.css";
-import { BRAND } from "@/config/brand.config";
-import QueryProvider from "@/components/providers/QueryProvider";
-import { Toaster } from "sonner";
-import { AuthProvider } from "@/components/providers/AuthProvider";
 import MegaMenu from "@/components/layout/MegaMenu";
-// Observability Imports
+import SearchModal from "@/components/layout/SearchModal";
+
+import QueryProvider from "@/components/providers/QueryProvider";
+import { AuthProvider } from "@/components/providers/AuthProvider";
+
+import { CartDrawer } from "./cart/CartDrawer";
+
+import { BRAND } from "@/config/brand.config";
+
+import { Toaster } from "sonner";
+
+// Observability
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
-// 🔥 NEW: Import the Search Modal
-import SearchModal from "@/components/layout/SearchModal"; 
-import { CartDrawer } from "./cart/CartDrawer";
-import { Google_Sans_Flex } from "next/font/google";
-
-
-
-const googleSans = Google_Sans_Flex({
-  subsets: ["latin"],
+const googleSans = localFont({
+  src: "../fonts/GoogleSansFlex.ttf",
   variable: "--font-google-sans",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
- title: "AE Naturals | Nature’s Finest Products",
-description: "Premium natural products crafted for wellness, skincare, haircare, and everyday healthy living.",
+  title: "AE Naturals | Nature’s Finest Products",
+  description:
+    "Premium natural products crafted for wellness, skincare, haircare, and everyday healthy living.",
+
   icons: {
     icon: [
-      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
-      { url: "/favicon-192x192.png", sizes: "192x192", type: "image/png" },
+      {
+        url: "/favicon-32x32.png",
+        sizes: "32x32",
+        type: "image/png",
+      },
+      {
+        url: "/favicon-192x192.png",
+        sizes: "192x192",
+        type: "image/png",
+      },
     ],
+
     apple: {
       url: "/apple-touch-icon.png",
       sizes: "180x180",
@@ -40,38 +57,41 @@ description: "Premium natural products crafted for wellness, skincare, haircare,
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
-
-      className={googleSans.variable}
+        className={`${googleSans.variable} font-sans antialiased`}
         style={{
           ["--primary" as string]: BRAND.theme.primary,
           ["--secondary" as string]: BRAND.theme.secondary,
           ["--accent" as string]: BRAND.theme.accent,
         }}
       >
-        <div className="flex flex-col min-h-screen">
-          <QueryProvider>
-            <AuthProvider>
-              {/* 🔥 NEW: Mount the modal globally within the providers */}
+        <QueryProvider>
+          <AuthProvider>
+            <div className="flex min-h-screen flex-col">
+              {/* Global Components */}
               <SearchModal />
-              <CartDrawer /> {/* 2. DROP THIS HERE */}
-              
+              <CartDrawer />
+
+              {/* Header */}
               <Header megaMenu={<MegaMenu />} />
-              
-              <main className="flex-1 flex flex-col w-full">
+
+              {/* Main Content */}
+              <main className="flex flex-1 flex-col w-full">
                 <Toaster position="top-center" richColors />
                 {children}
               </main>
 
+              {/* Footer */}
               <Footer />
-            </AuthProvider>
-          </QueryProvider>
-        </div>
+            </div>
+          </AuthProvider>
+        </QueryProvider>
+
         {/* Vercel Observability */}
         <Analytics />
         <SpeedInsights />
