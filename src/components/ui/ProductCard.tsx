@@ -17,6 +17,7 @@ interface ProductCardProps {
   product: {
     id: string;
     name: string;
+    subtitle: string;
     slug: string;
     images: string[];
     rating?: number;
@@ -52,10 +53,6 @@ export default function ProductCard({ product }: ProductCardProps) {
       : 0;
 
   // Logic for category name
-  const categoryName =
-    typeof product.category === "string"
-      ? product.category
-      : product.category?.name;
 
   // Default to the first variant if available for the AddToCart payload
   const [selectedVariant] = useState(variants[0] || null);
@@ -90,7 +87,6 @@ export default function ProductCard({ product }: ProductCardProps) {
   const hoverGif = normalizedMedia.find((m) => m.type === "gif");
 
   const hasDynamicHoverMedia = !!(hoverVideo || hoverGif);
-
   return (
     <article
       className={cn(
@@ -186,10 +182,11 @@ export default function ProductCard({ product }: ProductCardProps) {
           </h3>
         </Link>
 
-        {/* Category */}
-        {categoryName && (
-          <p className="text-xs text-neutral-500 mt-0.5 truncate">
-            {categoryName}
+        {/* Subtitle */}
+        {/* Subtitle */}
+        {product.subtitle && (
+          <p className="text-[11px] sm:text-xs text-neutral-500 font-normal leading-relaxed mt-1 line-clamp-2 break-words">
+            {product.subtitle}
           </p>
         )}
 
