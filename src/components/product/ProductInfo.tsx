@@ -76,6 +76,13 @@ export default function ProductInfo({ product }: { product: any }) {
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900 leading-tight">
           {product.name}
         </h1>
+
+    {/* Subtitle */}
+    {product.subtitle && (
+      <p className="mt-2 text-sm md:text-base text-gray-500 font-normal leading-relaxed line-clamp-2 break-words max-w-2xl">
+        {product.subtitle}
+      </p>
+    )}
         <div className="flex items-center space-x-2 mt-2">
           {renderStars(product.rating)}
           <span className="text-sm text-blue-600 hover:underline cursor-pointer font-medium">
